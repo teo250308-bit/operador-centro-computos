@@ -2,7 +2,7 @@
 # ==============================================
 # OPERADOR DE CENTRO DE CÓMPUTOS - Versión 4.0
 # Ubuntu Server 24.04.2 LTS
-# Desarrollado por Mateo Abreus
+# Desarrollado por Mateo Abreus (teo250308-bit)
 # ==============================================
 
 set -o errexit
@@ -10,11 +10,15 @@ set -o pipefail
 set -o nounset
 
 VERSION="4.0"
-GIT_REPO="https://github.com/MateoAbreus/operador-centro-computos.git"
+# 🔹 Repositorio oficial del proyecto
+GIT_REPO="https://github.com/teo250308-bit/operador-centro-computos.git"
+# 🔹 URL RAW directa del instalador automático
+INSTALLER_URL="https://raw.githubusercontent.com/teo250308-bit/operador-centro-computos/main/instalar_operador_auto.sh"
+
 LOG_FILE="/var/log/operador.log"
 BACKUP_DIR="/root/backups"
 
-# === COLORES ===
+# --- COLORES ---
 GREEN="\e[32m"; YELLOW="\e[33m"; RED="\e[31m"; BLUE="\e[34m"; BOLD="\e[1m"; RESET="\e[0m"
 ok(){ echo -e "${GREEN}✔${RESET} $*"; }
 warn(){ echo -e "${YELLOW}⚠${RESET} $*"; }
@@ -36,35 +40,15 @@ pausa(){ echo; read -rp "Presione Enter para continuar..." _; }
 # ===================================================
 
 instalar_auto(){
-  info "Instalando entorno completo..."
-  DEBIAN_FRONTEND=noninteractive apt update -y
-  DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends \
-    bash coreutils grep sed gawk tar gzip iproute2 procps util-linux \
-    nano curl wget rsync net-tools apache2 mysql-server mysql-client \
-    ufw fail2ban rclone git
-  ok "Dependencias instaladas."
-
-  systemctl enable --now apache2 mysql fail2ban
-  local CNF="/etc/mysql/mysql.conf.d/mysqld.cnf"
-  sed -i 's/^bind-address.*/bind-address = 0.0.0.0/' "$CNF" || echo "bind-address = 0.0.0.0" >> "$CNF"
-  sed -i 's/^mysqlx-bind-address.*/mysqlx-bind-address = 0.0.0.0/' "$CNF" || echo "mysqlx-bind-address = 0.0.0.0" >> "$CNF"
-  systemctl restart mysql
-  mysql -uroot -e "CREATE USER IF NOT EXISTS 'adminweb'@'%' IDENTIFIED BY 'AdminWeb123';"
-  mysql -uroot -e "GRANT ALL PRIVILEGES ON *.* TO 'adminweb'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"
-  ok "MySQL configurado para acceso remoto con usuario 'adminweb'."
-
-  ufw --force reset
-  ufw default deny incoming
-  ufw default allow outgoing
-  ufw allow 22,2222,80,443,3306/tcp
-  ufw --force enable
-  ok "Firewall UFW configurado."
-
-  systemctl restart apache2 mysql ssh fail2ban
-  mkdir -p "$BACKUP_DIR"; chmod 750 "$BACKUP_DIR"
-  touch "$LOG_FILE"; chmod 640 "$LOG_FILE"
-  ok "Entorno listo. Log en $LOG_FILE"
-  registrar_log "Instalación automática completada."
+  require_root
+  info "Descargando instalador automático desde GitHub..."
+  local tmp="/tmp/instalar_operador_auto.sh"
+  apt-get install -y curl >/dev/null 2>&1
+  curl -fsSL "$INSTALLER_URL" -o "$tmp" || { err "No se pudo descargar el instalador."; exit 1; }
+  chmod +x "$tmp"
+  bash "$tmp" "$0"
+  ok "Instalación completa finalizada."
+  registrar_log "Instalación automática ejecutada correctamente."
 }
 
 configurar_manual(){
@@ -79,15 +63,16 @@ configurar_manual(){
 }
 
 actualizar_git(){
+  require_root
   info "Actualizando desde GitHub..."
   apt install -y git >/dev/null 2>&1
   local tmp="/tmp/operador_update"
   rm -rf "$tmp"
-  git clone "$GIT_REPO" "$tmp"
+  git clone "$GIT_REPO" "$tmp" || { err "No se pudo clonar el repositorio."; exit 1; }
   cp -f "$tmp/operador.sh" /usr/local/bin/operador.sh
   chmod +x /usr/local/bin/operador.sh
   rm -rf "$tmp"
-  ok "Script actualizado desde GitHub."
+  ok "Script actualizado desde GitHub (${GIT_REPO})."
   registrar_log "Actualización completada desde GitHub."
 }
 
@@ -188,6 +173,19 @@ backup_local(){
   registrar_log "Backup de $src → $out"
 }
 
+restaurar_backup(){
+  echo -e "${BOLD}--- Restaurar respaldo ---${RESET}"
+  ls -1 "$BACKUP_DIR"/*.tar.gz 2>/dev/null || { warn "No hay respaldos disponibles."; pausa; return; }
+  read -rp "Ingrese nombre del archivo a restaurar (sin ruta): " file
+  local full="$BACKUP_DIR/$file"
+  [[ -f "$full" ]] || { err "El archivo no existe."; pausa; return; }
+  read -rp "Ruta destino para restaurar: " dest
+  mkdir -p "$dest"
+  tar -xzf "$full" -C "$dest"
+  ok "Respaldo restaurado en $dest"
+  registrar_log "Restaurado $file en $dest"
+}
+
 menu_backups(){
   while true; do
     clear
@@ -195,6 +193,7 @@ menu_backups(){
 1) Respaldar /etc
 2) Respaldar /var/www
 3) Respaldar ruta personalizada
+4) Restaurar respaldo
 0) Volver"
     read -rp "Opción: " b
     case "$b" in
@@ -204,6 +203,7 @@ menu_backups(){
         read -rp "Ruta: " r
         [[ -e "$r" ]] && backup_local "$r" "$(basename "$r")" || warn "No existe."
         ;;
+      4) restaurar_backup ;;
       0) break ;;
     esac; pausa
   done
