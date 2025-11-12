@@ -327,9 +327,9 @@ menu_principal(){
   registrar_log "[INFO]" "Inicio del operador versión $VERSION"
   while true; do
     clear
-    echo -e "${BOLD}==============================================="
+    echo -e "==============================================="
     echo "     OPERADOR DE CENTRO DE CÓMPUTOS v$VERSION"
-    echo "===============================================${RESET}"
+    echo "================================================="
     echo "1) Administración de sistemas"
     echo "2) Gestión de redes"
     echo "3) Gestión de procesos"
